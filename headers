@@ -1,0 +1,151 @@
+#!/bin/sh
+
+#
+#
+#
+#stdout E-MAIL headerS BASED ON parameterS
+#
+#
+#
+
+USAGE="headers [option] ...
+  
+  __stdout important e-mail headers.
+
+
+  -r, --reply FILE
+          toggle reply mode and use FILE as basis for the construction of headers in reply mode (default: false)
+
+  -c, --compose
+          toggle compose mode (default: true)
+
+  -t,  
+          toggle swapping of the To and From fields (default: true)
+
+  -o, --override
+          ignore prefixed hyphen in a positional argument
+
+"
+
+       Date=`date +%a,\ %d\ %b\ %Y\ %H\:%M\:%S\ %z`
+ Message_ID="<$RANDOM$RANDOM$RANDOM$RANDOM.`date +%s`@$HOSTNAME>" #no $RANDOM or $HOSTNAME in sh
+ Message_ID="<`tr -cd 0-9 </dev/urandom | head -c 20`.`date +%s`@`cat /etc/hostname`>"
+# Message_ID="<`getrandom``getrandom``getrandom``getrandom`.`date +%s`@$HOSTNAME>"
+In_Reply_To=
+       From=
+         To=
+    Subject=
+
+
+alias getoptarg='if test $OPTLNG -eq 1 -o -z "$OPTOPT"; then shift; OPTARG="$1"; else OPTARG="$OPTOPT"; OPTOPT=""; fi; test -z "$OPTARG" && { echo "$OPT needs argument"; exit 1; }'
+alias getopt='while test "$1"; do if test -z "$OPTOPT"; then OPT=""; OPTLNG=0; OPTNOT=""; test -z "${1%%--*}" && { OPTLNG=1; OPT="$1"; } || { test -n "${1%%-*}" && OPTNOT="$1"; if test $? -ne 0; then OPTOPT="$1"; OPT="${OPTOPT%%"${OPTOPT#??}"}"; OPTOPT="${OPTOPT#??}"; fi; }; else OPT="-${OPTOPT%%"${OPTOPT#?}"}"; OPTOPT="${OPTOPT#?}"; fi'
+alias gotopt='test -z "$OPTOPT" && shift; done'
+
+rxit()
+{
+  echo $*
+  exit 1
+}
+
+opt_mc=1 #mode compose
+opt_mr=0 #mode   reply
+opt_mr_file=
+opt_mr_toisfrom=1
+opt_override=0
+getopt
+  case "$OPT" in
+    -h|-\?|--help)
+      printf "$USAGE"
+      exit 1
+      ;;
+    -r|--reply)
+      getoptarg
+      test ! -f $OPTARG && rxit "-r option require a file as its argument"
+      opt_mr=1
+      opt_mc=0
+      opt_mr_file="$OPTARG"
+      ;;
+    -c|--compose)
+      opt_mr=0
+      opt_mc=1
+      ;;
+    -t)
+      opt_mr_toisfrom=$((!opt_mr_toisfrom))
+      ;;
+    -o|--override)
+      opt_override=1
+      ;;
+    -*)
+      echo "$OPT option is nowhere"
+      exit 1
+      ;;
+    *)
+      shift
+      #echo OPTNOT: $OPTNOT
+      test -z "$1" && { echo "a value for \`$OPTNOT' was not specified"; exit 1; }
+      test $opt_override -eq 0 && test -z "${1%%-*}" && { echo "there is hyphen in \`$1' for \`$OPTNOT' (override with -o)"; exit 1; }
+      eval "$OPTNOT='$1'"
+      ;;
+  esac
+gotopt
+#https://en.wikipedia.org/wiki/E-mail_subject_abbreviations
+#https://www.hostknox.com/tutorials/email/headers
+#http://www.jwz.org/doc/mid.html
+
+#KEEP ADDING FIELDS PROGRAMATICALLY,  SINGLE quoteS
+PRINTF="Date: $Date\nMessage-ID: $Message_ID"
+
+add()
+{
+  :
+  PRINTF="$PRINTF\n$1"
+}
+
+test -n "$To" && add "To: $To"
+test -n "$From" && add "From: $From"
+test -n "$Subject" && add "Subject: $Subject"
+
+if test $opt_mc -eq 1
+then #COMPOSE
+  :
+else #  REPLY
+  :
+  header="`cat $opt_mr_file`"
+  header="${header%%"
+
+"*}"
+  IFS='
+'
+  for n in $header
+  do
+    #[NO](12/20/15) FIELD'S VALUE CAN BE IN THE FORM OF AN INDENTED LINE DIRECTLY BELOW THE FIELD
+    value="${n#*: }"
+    test "$n" = "$value" && { continue; }
+    field="${n%%: "$value"}"
+    #echo "$field: $value"
+    case "$field" in
+      Message-ID)
+        add "In-Reply-To: $value"
+        ;;
+      From)
+        test -z "$To" && add "To: $value"
+        ;;
+      To)
+        test -z "$From" && add "From: $value"
+        ;;
+      Subject)
+        { test -z "${value%%RE:*}" || test -z "${value%%Re:*}" || test -z "${value%%re:*}" || test -z "${value%%rE:*}"; }
+        test -z "$Subject" && test $? -eq 0 && add "Subject: $value"
+        test -z "$Subject" && test $? -ne 0 && add "Subject: RE: $value"
+        ;;
+      *)
+        :
+        ;;
+    esac
+  done
+fi
+
+
+#eval "PRINTF=\"$PRINTF\""
+printf "$PRINTF\n\n"
+

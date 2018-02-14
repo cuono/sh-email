@@ -1,0 +1,175 @@
+#!/bin/sh
+
+VERSION=1
+USAGE='hi [-p] [-[0-9]+] [DIR]
+
+   stdout the highest decimal-numbered FILENAME located in $PWD,
+   or, DIR if DIR was specified on the command line, otherwise $PWD
+   
+   -p      ;; include the PATH of FILE in stdout- either relative to $PWD or DIR
+   -[0-9]+ ;; the -[0-9]+ TH highest FILE labeled like a decimal number
+   +[0-9]+ ;; add this number to the result (no effect if -[0-9]+ is specified)
+   ++      ;; shortcut for +1
+   -R      ;; do not round -[0-9]+ to minimum if it is larger than maximum, instead, return 1
+   -S      ;; use an sh implementation of bobble sort (extremely slow), instead of the external sort command
+   -h      ;; stdout this help then exit 1
+   -v      ;; version information
+'
+
+is_value_an_integer()
+{
+  v="$1"
+  #if subtraction prefix
+  chop="${v#-}"
+  test "$chop" = "$v" && { 
+    #test addition prefix
+    chop="${v#+}"
+    test "$chop" = "$v" || {
+      #echo addition
+      v="$chop"
+    }
+  } || {
+    #echo subtraction
+    v="$chop"
+  }
+  test -z "$v" && return 1
+  #iterate string until NIL or a non-decimal character is encountered
+  while test -n "$v"
+  do
+    chop="${v#[0-9]}"
+    test "$chop" = "$v" && return 1
+    v="$chop"
+  done
+  return 0
+}
+
+alias getoptarg='if test $OPTLNG -eq 1 -o -z "$OPTOPT"; then shift; OPTARG="$1"; else OPTARG="$OPTOPT"; OPTOPT=""; fi; test -z "$OPTARG" && { echo "$OPT needs argument"; exit 1; }'
+alias getopt='while test "$1"; do if test -z "$OPTOPT"; then OPT=""; OPTLNG=0; OPTNOT=""; test -z "${1%%--*}" && { OPTLNG=1; OPT="$1"; } || { test -n "${1%%-*}" && OPTNOT="$1"; if test $? -ne 0; then OPTOPT="$1"; OPT="${OPTOPT%%"${OPTOPT#??}"}"; OPTOPT="${OPTOPT#??}"; fi; }; else OPT="-${OPTOPT%%"${OPTOPT#?}"}"; OPTOPT="${OPTOPT#?}"; fi'
+alias gotopt='test -z "$OPTOPT" && shift; done'
+
+opt_dir=$PWD            #DIR
+opt_path=0              #-p
+opt_plus=0              #+[0-9]+
+opt_lesser=0            #-[0-9]+
+opt_round_lesser=1      #-R
+opt_use_external_sort=1 #-S
+getopt
+  case "$OPT" in
+    -v)
+      echo "Version $VERSION January 7th 2016"
+      exit 1
+      ;;
+    -h)
+      echo "$USAGE"
+      exit 1
+      ;;
+    -S)
+      opt_use_external_sort=0
+      ;;
+    -R)
+      opt_round_lesser=0
+      ;;
+    -p)
+      opt_path=1
+      ;;
+    -0|-1|-2|-3|-4|-5|-6|-7|-8|-9)
+      #getoptarg
+      #N="$OPT$OPTARG"
+      N="$1"
+      is_value_an_integer "$N"
+      test $? -eq 0 || { echo "this '$N' not integer"; exit 1; }
+      opt_lesser="$N"
+
+      #HACK, skip getopt's multioption processing
+      OPTOPT=""
+      OPT=""
+      ;;
+    -*)
+      echo "option '$OPT' is undefined"
+      exit 1
+      ;;
+    *)
+      N="$OPTNOT"
+      N="${N#+}"
+      if test "$N" = "$OPTNOT"
+      then
+        #[NO](07/01/16) write function to remove trailing slashes
+        opt_dir="${OPTNOT%/}"
+        test -d $opt_dir || { echo "this '$opt_dir' is not directory"; exit 1; }
+      else
+        if test "$N" = "+"
+        then
+          N=1
+        else
+          is_value_an_integer "$N" || { echo "this '$N' not integer"; exit 1; }
+        fi
+        opt_plus=$N
+      fi
+      ;;
+  esac
+gotopt
+
+LIST=""
+for e in $opt_dir/*
+do
+  FILENAME="${e##*/}"
+  is_value_an_integer "$FILENAME" && { if test $opt_use_external_sort -eq 1; then LIST="$LIST
+$FILENAME"; else LIST="$LIST $FILENAME"; fi; }
+  #echo $FILENAME
+done
+
+test -z "$LIST" && exit 1
+
+if test $opt_use_external_sort -eq 0
+then
+  #bobble sort (extremely slow)
+  SORTED=""
+  while test -n "$LIST"
+  do
+    h=0
+    for k in $LIST
+    do
+      test $h -lt $k && h=$k
+    done
+    TMPLIST=""
+    for k in $LIST
+    do
+      test $h -eq $k || TMPLIST="$TMPLIST $k"
+    done
+    LIST="$TMPLIST"
+    SORTED="$SORTED $h"
+  done
+else
+  SORTED="`echo "$LIST" | sort -nr`"
+fi
+
+for h in $SORTED
+do
+  ##c=$((h - (h + opt_lesser)))
+  ##echo $c
+  ##exit 1
+  c=$((-opt_lesser))
+  for h in $SORTED
+  do
+    test $c -eq 0 && { c="ok"; break; }
+    c=$((c - 1))
+  done
+  test "$c" = "ok" || { test $opt_round_lesser -eq 0 && exit 1; }
+  test $opt_plus -gt 0 && test $opt_lesser -eq 0 && h=$((h + opt_plus))
+  test $opt_path -eq 1 && h="$opt_dir/$h"
+  echo $h
+  exit 0
+done
+
+exit 1
+
+#nrs=  #numbers
+#for n in $dir/*
+#do
+#  str="${n##*/}"
+#  isint "$str"
+#  test $? -eq 1 && { continue; }
+#  ! test -f "$str" && { continue; }
+#  nrs="$nrs $str"
+#done
+

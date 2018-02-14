@@ -1,0 +1,16 @@
+#!/bin/sh
+
+test $# -ne 1 && exit 1
+test    -d "$1" || exit 1
+
+h="`hi \"$1\"`"
+if test -z "$h"
+then
+  h=0
+else
+  h=$((h + 1))
+fi
+
+cp -i /dev/stdin "$1/$h" && exit 0
+
+exit 1
